@@ -1,39 +1,38 @@
 import * as satellite from 'satellite.js'
 import type { SatellitePosition } from '../types'
 
-const GP_URL =
-  'https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=json'
+const TLE_URL =
+  'https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=tle'
 
 interface TLERecord {
   name: string
   satrec: satellite.SatRec
   objectType: string
-  country: string
-  launchDate: string
-  noradId: number
 }
 
 let cachedTLEs: TLERecord[] = []
 
+function inferObjectType(name: string): string {
+  const n = name.toUpperCase()
+  if (n.includes('DEB') || n.includes('DEBRIS')) return 'DEBRIS'
+  if (n.includes('R/B') || n.includes('ROCKET')) return 'ROCKET BODY'
+  return 'PAYLOAD'
+}
+
 export async function fetchTLEs(): Promise<TLERecord[]> {
-  const res = await fetch(GP_URL)
-  const data = await res.json()
+  const res = await fetch(TLE_URL)
+  const text = await res.text()
+  const lines = text.trim().split('\n').map((l) => l.trim())
 
   const records: TLERecord[] = []
-  for (const entry of data) {
-    const line1 = entry.TLE_LINE1
-    const line2 = entry.TLE_LINE2
-    if (!line1 || !line2) continue
+  for (let i = 0; i < lines.length - 2; i += 3) {
+    const name = lines[i]
+    const line1 = lines[i + 1]
+    const line2 = lines[i + 2]
+    if (!line1?.startsWith('1') || !line2?.startsWith('2')) continue
 
     const satrec = satellite.twoline2satrec(line1, line2)
-    records.push({
-      name: entry.OBJECT_NAME ?? 'UNKNOWN',
-      satrec,
-      objectType: entry.OBJECT_TYPE ?? 'UNKNOWN',
-      country: entry.COUNTRY_CODE ?? '—',
-      launchDate: entry.LAUNCH_DATE ?? '',
-      noradId: entry.NORAD_CAT_ID ?? 0,
-    })
+    records.push({ name, satrec, objectType: inferObjectType(name) })
   }
 
   cachedTLEs = records
@@ -44,7 +43,7 @@ export function propagateSatellites(tles: TLERecord[]): SatellitePosition[] {
   const now = new Date()
   const results: SatellitePosition[] = []
 
-  for (const { name, satrec, objectType, country, launchDate, noradId } of tles) {
+  for (const { name, satrec, objectType } of tles) {
     const posVel = satellite.propagate(satrec, now)
     const pos = posVel.position
     const vel = posVel.velocity
@@ -64,7 +63,7 @@ export function propagateSatellites(tles: TLERecord[]): SatellitePosition[] {
       velocity = Math.sqrt(vel.x ** 2 + vel.y ** 2 + vel.z ** 2)
     }
 
-    results.push({ name, lat, lng, alt, velocity, satrec, objectType, country, launchDate, noradId })
+    results.push({ name, lat, lng, alt, velocity, satrec, objectType })
   }
 
   return results

@@ -56,7 +56,7 @@ export function StatusBar({
             textTransform: 'uppercase',
           }}
         >
-          Satilocate
+          Satelocate
         </span>
         <Divider />
         <span className="font-data" style={{ fontSize: 11, color: 'rgba(140,200,230,0.6)' }}>

@@ -88,15 +88,6 @@ export function DetailPanel({ selected, onClose }: DetailPanelProps) {
           {selected.data.velocity !== undefined && (
             <Row label="Velocity" value={`${(selected.data.velocity * 7.905).toFixed(2)} km/s`} />
           )}
-          {selected.data.country && (
-            <Row label="Country" value={selected.data.country} />
-          )}
-          {selected.data.launchDate && (
-            <Row label="Launched" value={selected.data.launchDate.slice(0, 10)} />
-          )}
-          {selected.data.noradId !== undefined && selected.data.noradId > 0 && (
-            <Row label="NORAD ID" value={String(selected.data.noradId)} />
-          )}
         </div>
       )}
 
