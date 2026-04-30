@@ -4,6 +4,12 @@ export interface SatellitePosition {
   lng: number
   alt: number
   velocity?: number
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  satrec?: any
+  objectType?: string
+  country?: string
+  launchDate?: string
+  noradId?: number
 }
 
 export interface ISSPosition {

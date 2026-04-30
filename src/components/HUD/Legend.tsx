@@ -1,10 +1,13 @@
 export function Legend() {
   return (
-    <div className="hud-panel fixed bottom-4 left-4 z-10 px-4 py-3 text-xs font-mono flex flex-col gap-2">
-      <span className="text-gray-500 tracking-widest text-[10px]">LEGEND</span>
-      <LegendItem color="rgba(100,200,255,0.8)" label="Satellite" />
-      <LegendItem color="rgba(0,255,200,1)" label="ISS" size="lg" />
-      <LegendItem color="rgba(255,160,0,0.9)" label="Launch Site" size="md" />
+    <div
+      className="hud-panel fixed bottom-4 left-4 z-10"
+      style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}
+    >
+      <span className="label-text">Legend</span>
+      <LegendItem color="#88ddff" label="Satellite" size={6} />
+      <LegendItem color="#00ffc8" label="ISS" size={9} glow />
+      <LegendItem color="#ffa000" label="Launch Site" size={7} />
     </div>
   )
 }
@@ -12,27 +15,38 @@ export function Legend() {
 function LegendItem({
   color,
   label,
-  size = 'sm',
+  size,
+  glow,
 }: {
   color: string
   label: string
-  size?: 'sm' | 'md' | 'lg'
+  size: number
+  glow?: boolean
 }) {
-  const dotSize = size === 'lg' ? 10 : size === 'md' ? 8 : 6
   return (
-    <div className="flex items-center gap-2">
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
       <span
         style={{
           display: 'inline-block',
-          width: dotSize,
-          height: dotSize,
+          width: size,
+          height: size,
           borderRadius: '50%',
           background: color,
-          boxShadow: `0 0 6px ${color}`,
+          boxShadow: glow ? `0 0 8px ${color}, 0 0 16px ${color}` : `0 0 5px ${color}`,
           flexShrink: 0,
         }}
       />
-      <span className="text-gray-300">{label}</span>
+      <span
+        style={{
+          fontFamily: 'Rajdhani, sans-serif',
+          fontSize: 12,
+          fontWeight: 500,
+          color: 'rgba(180,215,235,0.75)',
+          letterSpacing: '0.06em',
+        }}
+      >
+        {label}
+      </span>
     </div>
   )
 }

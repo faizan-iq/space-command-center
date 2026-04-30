@@ -8,7 +8,7 @@ import { useISS } from './hooks/useISS'
 import { useSatellites } from './hooks/useSatellites'
 import { useLaunches } from './hooks/useLaunches'
 import { useSolarWeather } from './hooks/useSolarWeather'
-import type { SelectedObject } from './types'
+import type { SelectedObject, SatellitePosition } from './types'
 
 export default function App() {
   const { position: issPosition } = useISS()
@@ -16,9 +16,14 @@ export default function App() {
   const { launches } = useLaunches()
   const { weather } = useSolarWeather()
   const [selected, setSelected] = useState<SelectedObject>(null)
+  const [showAllPaths, setShowAllPaths] = useState(false)
+  const [autoRotate, setAutoRotate] = useState(true)
 
   const handleSelect = useCallback((obj: SelectedObject) => setSelected(obj), [])
   const handleClose = useCallback(() => setSelected(null), [])
+
+  const selectedSatellite =
+    selected?.type === 'satellite' ? (selected.data as SatellitePosition) : null
 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden' }}>
@@ -27,11 +32,18 @@ export default function App() {
         issPosition={issPosition}
         launches={launches}
         onSelect={handleSelect}
+        showAllPaths={showAllPaths}
+        autoRotate={autoRotate}
+        selectedSatellite={selectedSatellite}
       />
       <StatusBar
         weather={weather}
         satelliteCount={satellites.length}
         issOnline={issPosition !== null}
+        showAllPaths={showAllPaths}
+        onTogglePaths={() => setShowAllPaths((v) => !v)}
+        autoRotate={autoRotate}
+        onToggleRotate={() => setAutoRotate((v) => !v)}
       />
       <DetailPanel selected={selected} onClose={handleClose} />
       <Legend />
