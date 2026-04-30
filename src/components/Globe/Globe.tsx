@@ -66,7 +66,6 @@ async function buildStarField(): Promise<THREE.Points> {
   const data: [number, number, number, number, number][] = await fetch('/data/stars.json').then(
     (r) => r.json()
   )
-
   const radius = 900
   const positions = new Float32Array(data.length * 3)
   const colors = new Float32Array(data.length * 3)
@@ -77,12 +76,10 @@ async function buildStarField(): Promise<THREE.Points> {
     positions[i * 3]     = nx * radius
     positions[i * 3 + 1] = ny * radius
     positions[i * 3 + 2] = nz * radius
-
     const col = bvToColor(bv)
     colors[i * 3]     = col.r
     colors[i * 3 + 1] = col.g
     colors[i * 3 + 2] = col.b
-
     sizes[i] = Math.max(0.4, 1.8 - mag * 0.25)
   }
 
@@ -98,8 +95,25 @@ async function buildStarField(): Promise<THREE.Points> {
     transparent: true,
     opacity: 0.9,
   })
-
   return new THREE.Points(geo, mat)
+}
+
+// Split a flat list of points at antimeridian crossings (>180° lng jump)
+function splitAtAntimeridian(
+  pts: [number, number, number][]
+): [number, number, number][][] {
+  const segs: [number, number, number][][] = []
+  let seg: [number, number, number][] = []
+  for (let i = 0; i < pts.length; i++) {
+    if (i === 0) { seg.push(pts[i]); continue }
+    if (Math.abs(pts[i][1] - pts[i - 1][1]) > 180) {
+      if (seg.length > 1) segs.push(seg)
+      seg = []
+    }
+    seg.push(pts[i])
+  }
+  if (seg.length > 1) segs.push(seg)
+  return segs
 }
 
 const GLOBE_RADIUS = 100
@@ -118,6 +132,7 @@ export function Globe({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const globeRef = useRef<any>(null)
   const isHoveringRef = useRef(false)
+  const pathTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const auroraRingsRef = useRef<THREE.Mesh[]>([])
   const auroraAnimRef = useRef<number | null>(null)
 
@@ -140,7 +155,6 @@ export function Globe({
     globe.controls().dampingFactor = 0.1
 
     globe.scene().background = new THREE.Color(0x000000)
-
     buildStarField().then((stars) => globe.scene().add(stars))
 
     globeRef.current = globe
@@ -153,6 +167,7 @@ export function Globe({
 
     return () => {
       window.removeEventListener('resize', handleResize)
+      if (pathTimerRef.current) clearInterval(pathTimerRef.current)
       if (auroraAnimRef.current !== null) cancelAnimationFrame(auroraAnimRef.current)
       globe._destructor?.()
     }
@@ -170,11 +185,7 @@ export function Globe({
     const globe = globeRef.current
 
     const satObjects = satellites.map((s) => ({
-      lat: s.lat,
-      lng: s.lng,
-      alt: altFraction(s.alt),
-      data: s,
-      kind: 'satellite' as const,
+      lat: s.lat, lng: s.lng, alt: altFraction(s.alt), data: s, kind: 'satellite' as const,
     }))
 
     const issObjects = issPosition
@@ -197,9 +208,7 @@ export function Globe({
       .onObjectHover((d: any) => {
         const hovering = d !== null
         isHoveringRef.current = hovering
-        if (globeRef.current) {
-          globeRef.current.controls().autoRotate = !hovering && autoRotate
-        }
+        if (globeRef.current) globeRef.current.controls().autoRotate = !hovering && autoRotate
       })
       .onObjectClick((d: any) => {
         if (d.kind === 'satellite') onSelect({ type: 'satellite', data: d.data })
@@ -208,7 +217,7 @@ export function Globe({
       })
   }, [satellites, issPosition, onSelect, autoRotate])
 
-  // Launch sites as surface points
+  // Launch sites
   useEffect(() => {
     if (!globeRef.current) return
     const globe = globeRef.current
@@ -224,9 +233,7 @@ export function Globe({
       .onPointHover((d: any) => {
         const hovering = d !== null
         isHoveringRef.current = hovering
-        if (globeRef.current) {
-          globeRef.current.controls().autoRotate = !hovering && autoRotate
-        }
+        if (globeRef.current) globeRef.current.controls().autoRotate = !hovering && autoRotate
       })
       .onPointClick((d: any) => {
         onSelect({ type: 'launch', data: d.data })
@@ -234,10 +241,16 @@ export function Globe({
       })
   }, [launches, onSelect, autoRotate])
 
-  // Ground track paths — animated dashes following real orbital ground tracks
+  // Orbit paths
   useEffect(() => {
     if (!globeRef.current) return
     const globe = globeRef.current
+
+    // Stop any previous drawing animation
+    if (pathTimerRef.current) {
+      clearInterval(pathTimerRef.current)
+      pathTimerRef.current = null
+    }
 
     type PathEntry = {
       coords: [number, number, number][]
@@ -248,52 +261,77 @@ export function Globe({
       animTime: number
     }
 
-    const paths: PathEntry[] = []
-
-    // All satellite ground tracks — 6 orbits, dim blue, slow steady animation
+    // Pre-compute static background paths for all satellites (1 orbit, slow gentle animation)
+    const staticPaths: PathEntry[] = []
     if (showAllPaths) {
       for (const sat of satellites) {
         if (!sat.satrec) continue
-        const segments = computeGroundTrack(sat.satrec, 6, 90)
-        for (const seg of segments) {
-          paths.push({
+        const segs = computeGroundTrack(sat.satrec, 1, 80)
+        for (const seg of segs) {
+          staticPaths.push({
             coords: seg,
-            color: 'rgba(0,130,255,0.5)',
-            stroke: 0.35,
-            dashLen: 0.08,
-            gapLen: 0.02,
-            animTime: 120000,
+            color: 'rgba(0,110,255,0.35)',
+            stroke: 0.25,
+            dashLen: 0.7,
+            gapLen: 0.3,
+            animTime: 90000,
           })
         }
       }
     }
 
-    // Selected satellite — 12 orbits covering globe, bright cyan, slow animation
-    if (selectedSatellite?.satrec) {
-      const segments = computeGroundTrack(selectedSatellite.satrec, 12, 120)
-      for (const seg of segments) {
-        paths.push({
+    const applyPaths = (extra: PathEntry[]) => {
+      globe
+        .pathsData([...staticPaths, ...extra])
+        .pathPoints('coords')
+        .pathPointLat((p: any) => p[0])
+        .pathPointLng((p: any) => p[1])
+        .pathPointAlt((p: any) => p[2])
+        .pathColor('color')
+        .pathStroke('stroke')
+        .pathDashLength('dashLen')
+        .pathDashGap('gapLen')
+        .pathDashAnimateTime('animTime')
+    }
+
+    if (!selectedSatellite?.satrec) {
+      applyPaths([])
+      return
+    }
+
+    // Flatten 2-orbit future ground track into a single ordered point list
+    const flatPts = computeGroundTrack(selectedSatellite.satrec, 2, 120).flat()
+    let count = 2
+
+    const tick = () => {
+      count = Math.min(count + 1, flatPts.length)
+      const segs = splitAtAntimeridian(flatPts.slice(0, count))
+      applyPaths(
+        segs.map((seg) => ({
           coords: seg,
           color: 'rgba(0,255,220,0.9)',
           stroke: 0.7,
-          dashLen: 0.1,
-          gapLen: 0.015,
-          animTime: 90000,
-        })
+          dashLen: 1,
+          gapLen: 0,
+          animTime: 0,
+        }))
+      )
+      if (count >= flatPts.length) {
+        clearInterval(pathTimerRef.current!)
+        pathTimerRef.current = null
       }
     }
 
-    globe
-      .pathsData(paths)
-      .pathPoints('coords')
-      .pathPointLat((p: any) => p[0])
-      .pathPointLng((p: any) => p[1])
-      .pathPointAlt((p: any) => p[2])
-      .pathColor('color')
-      .pathStroke('stroke')
-      .pathDashLength('dashLen')
-      .pathDashGap('gapLen')
-      .pathDashAnimateTime('animTime')
+    // Draw one point every 100ms — full 2-orbit trace completes in ~24 seconds
+    pathTimerRef.current = setInterval(tick, 100)
+    tick()
+
+    return () => {
+      if (pathTimerRef.current) {
+        clearInterval(pathTimerRef.current)
+        pathTimerRef.current = null
+      }
+    }
   }, [satellites, selectedSatellite, showAllPaths])
 
   // Aurora rings — appear at poles when Kp >= 5
@@ -316,7 +354,6 @@ export function Globe({
 
     const color = kpIndex >= 7 ? 0xff6600 : 0x00ff88
     const opacity = Math.min(0.9, 0.3 + (kpIndex - 5) * 0.15)
-
     const polarY = GLOBE_RADIUS * Math.sin((75 * Math.PI) / 180)
     const ringRadius = GLOBE_RADIUS * Math.cos((75 * Math.PI) / 180)
 
