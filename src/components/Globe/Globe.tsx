@@ -237,21 +237,26 @@ export function Globe({
     if (!globeRef.current) return
     const globe = globeRef.current
 
-    const paths: { coords: [number, number][]; color: string; stroke: number }[] = []
+    type PathEntry = { coords: [number, number, number][]; color: string; stroke: number; selected: boolean }
+    const paths: PathEntry[] = []
 
-    // All satellite paths (dim)
+    // All satellite paths — solid, clearly visible, split per segment
     if (showAllPaths) {
       for (const sat of satellites) {
         if (!sat.satrec) continue
-        const coords = computeOrbitPath(sat.satrec, 80)
-        if (coords.length > 2) paths.push({ coords, color: 'rgba(40,120,200,0.25)', stroke: 0.2 })
+        const segments = computeOrbitPath(sat.satrec, 120)
+        for (const seg of segments) {
+          paths.push({ coords: seg, color: 'rgba(0,160,255,0.5)', stroke: 0.4, selected: false })
+        }
       }
     }
 
-    // Selected satellite path (bright)
+    // Selected satellite path — bright cyan, slightly thicker
     if (selectedSatellite?.satrec) {
-      const coords = computeOrbitPath(selectedSatellite.satrec, 120)
-      if (coords.length > 2) paths.push({ coords, color: 'rgba(0,255,255,0.8)', stroke: 0.5 })
+      const segments = computeOrbitPath(selectedSatellite.satrec, 160)
+      for (const seg of segments) {
+        paths.push({ coords: seg, color: 'rgba(0,255,220,0.95)', stroke: 0.7, selected: true })
+      }
     }
 
     globe
@@ -259,11 +264,13 @@ export function Globe({
       .pathPoints('coords')
       .pathPointLat((p: any) => p[0])
       .pathPointLng((p: any) => p[1])
+      .pathPointAlt((p: any) => p[2])
       .pathColor('color')
       .pathStroke('stroke')
-      .pathDashLength(0.05)
-      .pathDashGap(0.02)
-      .pathDashAnimateTime(selectedSatellite ? 4000 : 0)
+      // Subtle dash only on selected path; all-paths are solid
+      .pathDashLength((d: any) => d.selected ? 0.04 : 1)
+      .pathDashGap((d: any) => d.selected ? 0.01 : 0)
+      .pathDashAnimateTime((d: any) => d.selected ? 6000 : 0)
   }, [satellites, selectedSatellite, showAllPaths])
 
   return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />

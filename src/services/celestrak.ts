@@ -73,17 +73,17 @@ export function getCachedTLEs(): TLERecord[] {
   return cachedTLEs
 }
 
-// Compute one full orbit path for a satellite (returns array of [lat, lng] points)
+// Compute one full orbit — returns segments split at antimeridian crossings
+// Each point is [lat, lng, altFraction] so Globe.gl can elevate the path
 export function computeOrbitPath(
   satrec: satellite.SatRec,
-  steps = 120
-): [number, number][] {
-  // Estimate orbital period from mean motion (revolutions per day → minutes per rev)
+  steps = 160
+): [number, number, number][][] {
   const meanMotion = satrec.no // rad/min
   const periodMin = (2 * Math.PI) / meanMotion
   const stepMs = (periodMin * 60 * 1000) / steps
 
-  const points: [number, number][] = []
+  const all: [number, number, number][] = []
   const now = Date.now()
 
   for (let i = 0; i <= steps; i++) {
@@ -96,9 +96,24 @@ export function computeOrbitPath(
     const geo = satellite.eciToGeodetic(pos, gmst)
     const lat = satellite.degreesLat(geo.latitude)
     const lng = satellite.degreesLong(geo.longitude)
+    const alt = Math.log1p(geo.height / 400) * 0.12
 
-    if (!isNaN(lat) && !isNaN(lng)) points.push([lat, lng])
+    if (!isNaN(lat) && !isNaN(lng) && !isNaN(alt)) all.push([lat, lng, alt])
   }
 
-  return points
+  // Split into segments wherever longitude jumps > 180° (antimeridian crossing)
+  const segments: [number, number, number][][] = []
+  let seg: [number, number, number][] = []
+
+  for (let i = 0; i < all.length; i++) {
+    if (i === 0) { seg.push(all[i]); continue }
+    if (Math.abs(all[i][1] - all[i - 1][1]) > 180) {
+      if (seg.length > 1) segments.push(seg)
+      seg = []
+    }
+    seg.push(all[i])
+  }
+  if (seg.length > 1) segments.push(seg)
+
+  return segments
 }
