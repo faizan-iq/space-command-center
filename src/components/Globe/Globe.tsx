@@ -250,35 +250,35 @@ export function Globe({
 
     const paths: PathEntry[] = []
 
-    // All satellite ground tracks — 2 orbits, dim blue dashes
+    // All satellite ground tracks — 6 orbits, dim blue, slow steady animation
     if (showAllPaths) {
       for (const sat of satellites) {
         if (!sat.satrec) continue
-        const segments = computeGroundTrack(sat.satrec, 2, 80)
+        const segments = computeGroundTrack(sat.satrec, 6, 90)
         for (const seg of segments) {
           paths.push({
             coords: seg,
-            color: 'rgba(0,120,255,0.45)',
-            stroke: 0.3,
-            dashLen: 0.02,
-            gapLen: 0.04,
-            animTime: 15000,
+            color: 'rgba(0,130,255,0.5)',
+            stroke: 0.35,
+            dashLen: 0.08,
+            gapLen: 0.02,
+            animTime: 120000,
           })
         }
       }
     }
 
-    // Selected satellite — 4 orbits, bright cyan dashes, faster animation
+    // Selected satellite — 12 orbits covering globe, bright cyan, slow animation
     if (selectedSatellite?.satrec) {
-      const segments = computeGroundTrack(selectedSatellite.satrec, 4, 120)
+      const segments = computeGroundTrack(selectedSatellite.satrec, 12, 120)
       for (const seg of segments) {
         paths.push({
           coords: seg,
           color: 'rgba(0,255,220,0.9)',
-          stroke: 0.6,
-          dashLen: 0.04,
-          gapLen: 0.02,
-          animTime: 5000,
+          stroke: 0.7,
+          dashLen: 0.1,
+          gapLen: 0.015,
+          animTime: 90000,
         })
       }
     }
