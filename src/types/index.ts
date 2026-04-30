@@ -7,6 +7,7 @@ export interface SatellitePosition {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   satrec?: any
   objectType?: string
+  purpose?: string
 }
 
 export interface ISSPosition {

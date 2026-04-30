@@ -57,6 +57,20 @@ export function DetailPanel({ selected, onClose }: DetailPanelProps) {
           {selected.type === 'satellite' && (
             <div style={{ marginTop: 3 }}>{typeBadge(selected.data.objectType)}</div>
           )}
+          {selected.type === 'satellite' && selected.data.purpose && (
+            <p
+              style={{
+                fontFamily: 'Rajdhani, sans-serif',
+                fontSize: 11,
+                color: 'rgba(140,200,230,0.7)',
+                lineHeight: 1.4,
+                marginTop: 4,
+                maxWidth: 200,
+              }}
+            >
+              {selected.data.purpose}
+            </p>
+          )}
         </div>
         <button
           onClick={onClose}

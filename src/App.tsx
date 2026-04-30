@@ -23,7 +23,11 @@ export default function App() {
   const handleClose = useCallback(() => setSelected(null), [])
 
   const selectedSatellite =
-    selected?.type === 'satellite' ? (selected.data as SatellitePosition) : null
+    selected?.type === 'satellite'
+      ? (selected.data as SatellitePosition)
+      : selected?.type === 'iss'
+        ? satellites.find((s) => s.name.includes('ISS') || s.name.includes('ZARYA')) ?? null
+        : null
 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden' }}>
@@ -35,6 +39,7 @@ export default function App() {
         showAllPaths={showAllPaths}
         autoRotate={autoRotate}
         selectedSatellite={selectedSatellite}
+        kpIndex={weather?.kpIndex ?? 0}
       />
       <StatusBar
         weather={weather}

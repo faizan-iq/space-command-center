@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import GlobeGL from 'globe.gl'
 import * as THREE from 'three'
 import type { SatellitePosition, ISSPosition, Launch, SelectedObject } from '../../types'
-import { computeOrbitPath } from '../../services/celestrak'
+import { computeOrbitECEF } from '../../services/celestrak'
 
 interface GlobeProps {
   satellites: SatellitePosition[]
@@ -12,6 +12,7 @@ interface GlobeProps {
   showAllPaths: boolean
   autoRotate: boolean
   selectedSatellite: SatellitePosition | null
+  kpIndex: number
 }
 
 // Cache Three.js models by name — created once, reused every update tick
@@ -84,7 +85,6 @@ async function buildStarField(): Promise<THREE.Points> {
     colors[i * 3 + 1] = col.g
     colors[i * 3 + 2] = col.b
 
-    // Brighter star (lower mag) = larger point
     sizes[i] = Math.max(0.4, 1.8 - mag * 0.25)
   }
 
@@ -104,6 +104,32 @@ async function buildStarField(): Promise<THREE.Points> {
   return new THREE.Points(geo, mat)
 }
 
+const GLOBE_RADIUS = 100
+const SCALE = GLOBE_RADIUS / 6371
+
+function ecefToThree(p: { x: number; y: number; z: number }): THREE.Vector3 {
+  return new THREE.Vector3(p.x * SCALE, p.z * SCALE, -p.y * SCALE)
+}
+
+function makeOrbitLine(
+  satrec: unknown,
+  steps: number,
+  color: number,
+  opacity: number
+): THREE.Line | null {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pts = computeOrbitECEF(satrec as any, steps)
+  if (pts.length < 2) return null
+
+  const verts = pts.map(ecefToThree)
+  // Close the ring
+  verts.push(verts[0].clone())
+
+  const geo = new THREE.BufferGeometry().setFromPoints(verts)
+  const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity })
+  return new THREE.Line(geo, mat)
+}
+
 export function Globe({
   satellites,
   issPosition,
@@ -112,11 +138,15 @@ export function Globe({
   showAllPaths,
   autoRotate,
   selectedSatellite,
+  kpIndex,
 }: GlobeProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const globeRef = useRef<any>(null)
   const isHoveringRef = useRef(false)
+  const orbitLinesRef = useRef<THREE.Line[]>([])
+  const auroraRingsRef = useRef<THREE.Mesh[]>([])
+  const auroraAnimRef = useRef<number | null>(null)
 
   // Init globe once
   useEffect(() => {
@@ -136,10 +166,8 @@ export function Globe({
     globe.controls().enableDamping = true
     globe.controls().dampingFactor = 0.1
 
-    // Black background instead of bitmap
     globe.scene().background = new THREE.Color(0x000000)
 
-    // Build and add real star field
     buildStarField().then((stars) => globe.scene().add(stars))
 
     globeRef.current = globe
@@ -156,7 +184,7 @@ export function Globe({
     }
   }, [])
 
-  // Sync autoRotate prop — only change if not hovering
+  // Sync autoRotate prop
   useEffect(() => {
     if (!globeRef.current) return
     globeRef.current.controls().autoRotate = autoRotate && !isHoveringRef.current
@@ -232,46 +260,85 @@ export function Globe({
       })
   }, [launches, onSelect, autoRotate])
 
-  // Orbit paths — selected satellite + optional all-paths toggle
+  // Orbit paths as Three.js Lines using ECEF coordinates
   useEffect(() => {
     if (!globeRef.current) return
-    const globe = globeRef.current
+    const scene = globeRef.current.scene()
 
-    type PathEntry = { coords: [number, number, number][]; color: string; stroke: number; selected: boolean }
-    const paths: PathEntry[] = []
+    // Remove old lines
+    for (const line of orbitLinesRef.current) {
+      scene.remove(line)
+      line.geometry.dispose()
+      ;(line.material as THREE.Material).dispose()
+    }
+    orbitLinesRef.current = []
 
-    // All satellite paths — solid, clearly visible, split per segment
+    const newLines: THREE.Line[] = []
+
     if (showAllPaths) {
       for (const sat of satellites) {
         if (!sat.satrec) continue
-        const segments = computeOrbitPath(sat.satrec, 120)
-        for (const seg of segments) {
-          paths.push({ coords: seg, color: 'rgba(0,160,255,0.5)', stroke: 0.4, selected: false })
-        }
+        const line = makeOrbitLine(sat.satrec, 120, 0x0088ff, 0.35)
+        if (line) { scene.add(line); newLines.push(line) }
       }
     }
 
-    // Selected satellite path — bright cyan, slightly thicker
     if (selectedSatellite?.satrec) {
-      const segments = computeOrbitPath(selectedSatellite.satrec, 160)
-      for (const seg of segments) {
-        paths.push({ coords: seg, color: 'rgba(0,255,220,0.95)', stroke: 0.7, selected: true })
-      }
+      const line = makeOrbitLine(selectedSatellite.satrec, 200, 0x00ffdc, 0.95)
+      if (line) { scene.add(line); newLines.push(line) }
     }
 
-    globe
-      .pathsData(paths)
-      .pathPoints('coords')
-      .pathPointLat((p: any) => p[0])
-      .pathPointLng((p: any) => p[1])
-      .pathPointAlt((p: any) => p[2])
-      .pathColor('color')
-      .pathStroke('stroke')
-      // Subtle dash only on selected path; all-paths are solid
-      .pathDashLength((d: any) => d.selected ? 0.04 : 1)
-      .pathDashGap((d: any) => d.selected ? 0.01 : 0)
-      .pathDashAnimateTime((d: any) => d.selected ? 6000 : 0)
+    orbitLinesRef.current = newLines
   }, [satellites, selectedSatellite, showAllPaths])
+
+  // Aurora rings — appear at poles when Kp >= 5
+  useEffect(() => {
+    if (!globeRef.current) return
+    const scene = globeRef.current.scene()
+
+    // Cleanup previous rings and animation
+    if (auroraAnimRef.current !== null) {
+      cancelAnimationFrame(auroraAnimRef.current)
+      auroraAnimRef.current = null
+    }
+    for (const ring of auroraRingsRef.current) {
+      scene.remove(ring)
+      ring.geometry.dispose()
+      ;(ring.material as THREE.Material).dispose()
+    }
+    auroraRingsRef.current = []
+
+    if (kpIndex < 5) return
+
+    const color = kpIndex >= 7 ? 0xff6600 : 0x00ff88
+    const opacity = Math.min(0.9, 0.3 + (kpIndex - 5) * 0.15)
+
+    // Polar cap latitude ~75° → y position on globe sphere of radius 100
+    const polarY = GLOBE_RADIUS * Math.sin((75 * Math.PI) / 180)
+    const ringRadius = GLOBE_RADIUS * Math.cos((75 * Math.PI) / 180)
+
+    const geo = new THREE.TorusGeometry(ringRadius, 0.5, 8, 80)
+    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, side: THREE.DoubleSide })
+
+    const north = new THREE.Mesh(geo, mat)
+    north.rotation.x = Math.PI / 2
+    north.position.y = polarY
+
+    const south = north.clone()
+    south.position.y = -polarY
+
+    scene.add(north)
+    scene.add(south)
+    auroraRingsRef.current = [north, south]
+
+    // Slow spin animation
+    const animate = () => {
+      north.rotation.z += 0.002
+      south.rotation.z -= 0.002
+      auroraAnimRef.current = requestAnimationFrame(animate)
+    }
+    auroraAnimRef.current = requestAnimationFrame(animate)
+  }, [kpIndex])
 
   return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
 }
