@@ -184,7 +184,15 @@ export function Globe({
     if (!globeRef.current) return
     const globe = globeRef.current
 
-    const satObjects = satellites.map((s) => ({
+    // Limit rendered 3D objects — too many kills GPU performance
+    // Prioritize non-debris, non-rocket-body satellites
+    const RENDER_LIMIT = 400
+    const renderSats = [
+      ...satellites.filter(s => s.objectType === 'PAYLOAD'),
+      ...satellites.filter(s => s.objectType !== 'PAYLOAD'),
+    ].slice(0, RENDER_LIMIT)
+
+    const satObjects = renderSats.map((s) => ({
       lat: s.lat, lng: s.lng, alt: altFraction(s.alt), data: s, kind: 'satellite' as const,
     }))
 

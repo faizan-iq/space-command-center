@@ -24,12 +24,15 @@ export function useSatellites() {
 
   useEffect(() => {
     if (loading) return
+    const tles = getCachedTLEs()
+    // Large TLE sets are expensive to propagate — slow down for >500 satellites
+    const intervalMs = tles.length > 500 ? 5000 : 1000
     const id = setInterval(() => {
-      const tles = getCachedTLEs()
-      if (tles.length > 0) {
-        setSatellites(propagateSatellites(tles))
+      const current = getCachedTLEs()
+      if (current.length > 0) {
+        setSatellites(propagateSatellites(current))
       }
-    }, 1000)
+    }, intervalMs)
     return () => clearInterval(id)
   }, [loading])
 

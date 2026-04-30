@@ -1,8 +1,10 @@
 import * as satellite from 'satellite.js'
 import type { SatellitePosition } from '../types'
 
-const TLE_URL =
-  'https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle'
+const TLE_URLS = [
+  'https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle',
+  'https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=tle',
+]
 
 interface TLERecord {
   name: string
@@ -66,8 +68,9 @@ export function inferPurpose(name: string): string {
   return 'Purpose unknown'
 }
 
-export async function fetchTLEs(): Promise<TLERecord[]> {
-  const res = await fetch(TLE_URL)
+async function fetchTLEsFromUrl(url: string): Promise<TLERecord[]> {
+  const res = await fetch(url)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
   const text = await res.text()
   const lines = text.trim().split('\n').map((l) => l.trim())
 
@@ -79,6 +82,19 @@ export async function fetchTLEs(): Promise<TLERecord[]> {
     if (!line1?.startsWith('1') || !line2?.startsWith('2')) continue
     const satrec = satellite.twoline2satrec(line1, line2)
     records.push({ name, satrec, objectType: inferObjectType(name) })
+  }
+  return records
+}
+
+export async function fetchTLEs(): Promise<TLERecord[]> {
+  let records: TLERecord[] = []
+  for (const url of TLE_URLS) {
+    try {
+      records = await fetchTLEsFromUrl(url)
+      if (records.length > 0) break
+    } catch {
+      // try next URL
+    }
   }
 
   cachedTLEs = records
