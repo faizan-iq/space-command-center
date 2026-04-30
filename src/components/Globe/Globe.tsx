@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import GlobeGL from 'globe.gl'
 import * as THREE from 'three'
 import type { SatellitePosition, ISSPosition, Launch, SelectedObject } from '../../types'
-import { computeOrbitECEF } from '../../services/celestrak'
+import { computeGroundTrack } from '../../services/celestrak'
 
 interface GlobeProps {
   satellites: SatellitePosition[]
@@ -15,7 +15,6 @@ interface GlobeProps {
   kpIndex: number
 }
 
-// Cache Three.js models by name — created once, reused every update tick
 const modelCache = new Map<string, THREE.Group>()
 
 function buildSatModel(isISS: boolean): THREE.Group {
@@ -52,15 +51,14 @@ function altFraction(km: number): number {
   return Math.log1p(km / 400) * 0.12
 }
 
-// Convert B-V color index to a THREE.Color
 function bvToColor(bv: number): THREE.Color {
   const color = new THREE.Color()
-  if (bv < -0.3) color.setRGB(0.6, 0.7, 1.0)       // hot blue
-  else if (bv < 0.0) color.setRGB(0.8, 0.85, 1.0)   // blue-white
-  else if (bv < 0.3) color.setRGB(1.0, 1.0, 1.0)    // white
-  else if (bv < 0.6) color.setRGB(1.0, 1.0, 0.85)   // yellow-white
-  else if (bv < 1.0) color.setRGB(1.0, 0.9, 0.6)    // yellow-orange
-  else color.setRGB(1.0, 0.6, 0.4)                   // red/cool
+  if (bv < -0.3) color.setRGB(0.6, 0.7, 1.0)
+  else if (bv < 0.0) color.setRGB(0.8, 0.85, 1.0)
+  else if (bv < 0.3) color.setRGB(1.0, 1.0, 1.0)
+  else if (bv < 0.6) color.setRGB(1.0, 1.0, 0.85)
+  else if (bv < 1.0) color.setRGB(1.0, 0.9, 0.6)
+  else color.setRGB(1.0, 0.6, 0.4)
   return color
 }
 
@@ -105,30 +103,6 @@ async function buildStarField(): Promise<THREE.Points> {
 }
 
 const GLOBE_RADIUS = 100
-const SCALE = GLOBE_RADIUS / 6371
-
-function ecefToThree(p: { x: number; y: number; z: number }): THREE.Vector3 {
-  return new THREE.Vector3(p.x * SCALE, p.z * SCALE, -p.y * SCALE)
-}
-
-function makeOrbitLine(
-  satrec: unknown,
-  steps: number,
-  color: number,
-  opacity: number
-): THREE.Line | null {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pts = computeOrbitECEF(satrec as any, steps)
-  if (pts.length < 2) return null
-
-  const verts = pts.map(ecefToThree)
-  // Close the ring
-  verts.push(verts[0].clone())
-
-  const geo = new THREE.BufferGeometry().setFromPoints(verts)
-  const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity })
-  return new THREE.Line(geo, mat)
-}
 
 export function Globe({
   satellites,
@@ -144,7 +118,6 @@ export function Globe({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const globeRef = useRef<any>(null)
   const isHoveringRef = useRef(false)
-  const orbitLinesRef = useRef<THREE.Line[]>([])
   const auroraRingsRef = useRef<THREE.Mesh[]>([])
   const auroraAnimRef = useRef<number | null>(null)
 
@@ -180,6 +153,7 @@ export function Globe({
 
     return () => {
       window.removeEventListener('resize', handleResize)
+      if (auroraAnimRef.current !== null) cancelAnimationFrame(auroraAnimRef.current)
       globe._destructor?.()
     }
   }, [])
@@ -260,35 +234,66 @@ export function Globe({
       })
   }, [launches, onSelect, autoRotate])
 
-  // Orbit paths as Three.js Lines using ECEF coordinates
+  // Ground track paths — animated dashes following real orbital ground tracks
   useEffect(() => {
     if (!globeRef.current) return
-    const scene = globeRef.current.scene()
+    const globe = globeRef.current
 
-    // Remove old lines
-    for (const line of orbitLinesRef.current) {
-      scene.remove(line)
-      line.geometry.dispose()
-      ;(line.material as THREE.Material).dispose()
+    type PathEntry = {
+      coords: [number, number, number][]
+      color: string
+      stroke: number
+      dashLen: number
+      gapLen: number
+      animTime: number
     }
-    orbitLinesRef.current = []
 
-    const newLines: THREE.Line[] = []
+    const paths: PathEntry[] = []
 
+    // All satellite ground tracks — 2 orbits, dim blue dashes
     if (showAllPaths) {
       for (const sat of satellites) {
         if (!sat.satrec) continue
-        const line = makeOrbitLine(sat.satrec, 120, 0x0088ff, 0.35)
-        if (line) { scene.add(line); newLines.push(line) }
+        const segments = computeGroundTrack(sat.satrec, 2, 80)
+        for (const seg of segments) {
+          paths.push({
+            coords: seg,
+            color: 'rgba(0,120,255,0.45)',
+            stroke: 0.3,
+            dashLen: 0.02,
+            gapLen: 0.04,
+            animTime: 15000,
+          })
+        }
       }
     }
 
+    // Selected satellite — 4 orbits, bright cyan dashes, faster animation
     if (selectedSatellite?.satrec) {
-      const line = makeOrbitLine(selectedSatellite.satrec, 200, 0x00ffdc, 0.95)
-      if (line) { scene.add(line); newLines.push(line) }
+      const segments = computeGroundTrack(selectedSatellite.satrec, 4, 120)
+      for (const seg of segments) {
+        paths.push({
+          coords: seg,
+          color: 'rgba(0,255,220,0.9)',
+          stroke: 0.6,
+          dashLen: 0.04,
+          gapLen: 0.02,
+          animTime: 5000,
+        })
+      }
     }
 
-    orbitLinesRef.current = newLines
+    globe
+      .pathsData(paths)
+      .pathPoints('coords')
+      .pathPointLat((p: any) => p[0])
+      .pathPointLng((p: any) => p[1])
+      .pathPointAlt((p: any) => p[2])
+      .pathColor('color')
+      .pathStroke('stroke')
+      .pathDashLength('dashLen')
+      .pathDashGap('gapLen')
+      .pathDashAnimateTime('animTime')
   }, [satellites, selectedSatellite, showAllPaths])
 
   // Aurora rings — appear at poles when Kp >= 5
@@ -296,7 +301,6 @@ export function Globe({
     if (!globeRef.current) return
     const scene = globeRef.current.scene()
 
-    // Cleanup previous rings and animation
     if (auroraAnimRef.current !== null) {
       cancelAnimationFrame(auroraAnimRef.current)
       auroraAnimRef.current = null
@@ -313,7 +317,6 @@ export function Globe({
     const color = kpIndex >= 7 ? 0xff6600 : 0x00ff88
     const opacity = Math.min(0.9, 0.3 + (kpIndex - 5) * 0.15)
 
-    // Polar cap latitude ~75° → y position on globe sphere of radius 100
     const polarY = GLOBE_RADIUS * Math.sin((75 * Math.PI) / 180)
     const ringRadius = GLOBE_RADIUS * Math.cos((75 * Math.PI) / 180)
 
@@ -331,7 +334,6 @@ export function Globe({
     scene.add(south)
     auroraRingsRef.current = [north, south]
 
-    // Slow spin animation
     const animate = () => {
       north.rotation.z += 0.002
       south.rotation.z -= 0.002

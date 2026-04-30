@@ -97,31 +97,49 @@ export function getCachedTLEs(): TLERecord[] {
   return cachedTLEs
 }
 
-// Compute one full orbit as ECEF coordinates (km).
-// Caller maps to Three.js: new THREE.Vector3(x, z, -y) * (100 / 6371)
-export function computeOrbitECEF(
+// Compute the satellite's ground track over multiple orbits.
+// Returns segments split at antimeridian crossings (>180° lng jump).
+// Each point is [lat, lng, surfaceAlt] for Globe.gl pathsData.
+export function computeGroundTrack(
   satrec: satellite.SatRec,
-  steps = 160
-): { x: number; y: number; z: number }[] {
+  numOrbits = 3,
+  stepsPerOrbit = 90
+): [number, number, number][][] {
   const meanMotion = satrec.no // rad/min
   const periodMin = (2 * Math.PI) / meanMotion
-  const stepMs = (periodMin * 60 * 1000) / steps
+  const totalSteps = numOrbits * stepsPerOrbit
+  const stepMs = (periodMin * 60 * 1000) / stepsPerOrbit
   const now = Date.now()
-  const points: { x: number; y: number; z: number }[] = []
 
-  for (let i = 0; i <= steps; i++) {
+  const all: [number, number, number][] = []
+
+  for (let i = 0; i <= totalSteps; i++) {
     const t = new Date(now + i * stepMs)
     const posVel = satellite.propagate(satrec, t)
     const pos = posVel.position
     if (!pos || typeof pos === 'boolean') continue
 
     const gmst = satellite.gstime(t)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const ecf = satellite.eciToEcf(pos as any, gmst) as { x: number; y: number; z: number }
-    if (!isNaN(ecf.x) && !isNaN(ecf.y) && !isNaN(ecf.z)) {
-      points.push(ecf)
-    }
+    const geo = satellite.eciToGeodetic(pos, gmst)
+    const lat = satellite.degreesLat(geo.latitude)
+    const lng = satellite.degreesLong(geo.longitude)
+
+    if (!isNaN(lat) && !isNaN(lng)) all.push([lat, lng, 0.004])
   }
 
-  return points
+  // Split where satellite crosses the antimeridian (±180° boundary)
+  const segments: [number, number, number][][] = []
+  let seg: [number, number, number][] = []
+
+  for (let i = 0; i < all.length; i++) {
+    if (i === 0) { seg.push(all[i]); continue }
+    if (Math.abs(all[i][1] - all[i - 1][1]) > 180) {
+      if (seg.length > 1) segments.push(seg)
+      seg = []
+    }
+    seg.push(all[i])
+  }
+  if (seg.length > 1) segments.push(seg)
+
+  return segments
 }
