@@ -9,6 +9,8 @@ interface StatusBarProps {
   onTogglePaths: () => void
   autoRotate: boolean
   onToggleRotate: () => void
+  view: 'earth' | 'solar-system'
+  onToggleView: () => void
 }
 
 function kpColor(kp: number): string {
@@ -25,6 +27,8 @@ export function StatusBar({
   onTogglePaths,
   autoRotate,
   onToggleRotate,
+  view,
+  onToggleView,
 }: StatusBarProps) {
   const [utc, setUtc] = useState('')
 
@@ -104,11 +108,18 @@ export function StatusBar({
 
       {/* Right — controls */}
       <div className="flex items-center gap-2">
-        <button className={`hud-btn ${showAllPaths ? 'active' : ''}`} onClick={onTogglePaths}>
-          Orbits {showAllPaths ? 'ON' : 'OFF'}
-        </button>
-        <button className={`hud-btn ${autoRotate ? 'active' : ''}`} onClick={onToggleRotate}>
-          {autoRotate ? '⟳ Rotating' : '⏸ Paused'}
+        {view === 'earth' && (
+          <>
+            <button className={`hud-btn ${showAllPaths ? 'active' : ''}`} onClick={onTogglePaths}>
+              Orbits {showAllPaths ? 'ON' : 'OFF'}
+            </button>
+            <button className={`hud-btn ${autoRotate ? 'active' : ''}`} onClick={onToggleRotate}>
+              {autoRotate ? '⟳ Rotating' : '⏸ Paused'}
+            </button>
+          </>
+        )}
+        <button className={`hud-btn ${view === 'solar-system' ? 'active' : ''}`} onClick={onToggleView}>
+          {view === 'earth' ? '☀ Solar System' : '⊕ Earth'}
         </button>
       </div>
     </div>

@@ -8,6 +8,9 @@ export interface SatellitePosition {
   satrec?: any
   objectType?: string
   purpose?: string
+  operator?: string
+  country?: string
+  launched?: string
 }
 
 export interface ISSPosition {

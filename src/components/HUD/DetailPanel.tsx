@@ -102,6 +102,15 @@ export function DetailPanel({ selected, onClose }: DetailPanelProps) {
           {selected.data.velocity !== undefined && (
             <Row label="Velocity" value={`${(selected.data.velocity * 7.905).toFixed(2)} km/s`} />
           )}
+          {selected.data.operator && (
+            <Row label="Operator" value={selected.data.operator} />
+          )}
+          {selected.data.country && (
+            <Row label="Country" value={selected.data.country} />
+          )}
+          {selected.data.launched && (
+            <Row label="Launched" value={selected.data.launched} />
+          )}
         </div>
       )}
 

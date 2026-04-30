@@ -2,7 +2,7 @@ import * as satellite from 'satellite.js'
 import type { SatellitePosition } from '../types'
 
 const TLE_URL =
-  'https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=tle'
+  'https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle'
 
 interface TLERecord {
   name: string
@@ -10,7 +10,30 @@ interface TLERecord {
   objectType: string
 }
 
+interface SatDbEntry {
+  operator?: string
+  purpose?: string
+  country?: string
+  launched?: string
+}
+
 let cachedTLEs: TLERecord[] = []
+const groundTrackCache = new Map<string, [number, number, number][][]>()
+const satDb = new Map<string, SatDbEntry>()
+let satDbLoaded = false
+
+export async function loadSatelliteDb(): Promise<void> {
+  if (satDbLoaded) return
+  try {
+    const data: Record<string, SatDbEntry> = await fetch('/data/satellites-db.json').then((r) => r.json())
+    for (const [name, entry] of Object.entries(data)) {
+      satDb.set(name.toUpperCase(), entry)
+    }
+    satDbLoaded = true
+  } catch {
+    // DB optional — falls back to pattern matching
+  }
+}
 
 function inferObjectType(name: string): string {
   const n = name.toUpperCase()
@@ -54,13 +77,36 @@ export async function fetchTLEs(): Promise<TLERecord[]> {
     const line1 = lines[i + 1]
     const line2 = lines[i + 2]
     if (!line1?.startsWith('1') || !line2?.startsWith('2')) continue
-
     const satrec = satellite.twoline2satrec(line1, line2)
     records.push({ name, satrec, objectType: inferObjectType(name) })
   }
 
   cachedTLEs = records
+  groundTrackCache.clear()
+  _precomputeGroundTracks(records)
   return records
+}
+
+// Pre-compute 1-orbit ground tracks for all satellites after TLE fetch.
+// Runs async in the background — cache fills gradually without blocking.
+function _precomputeGroundTracks(records: TLERecord[]): void {
+  let i = 0
+  const BATCH = 20
+  const step = () => {
+    const end = Math.min(i + BATCH, records.length)
+    for (; i < end; i++) {
+      const { name, satrec } = records[i]
+      if (!groundTrackCache.has(name)) {
+        groundTrackCache.set(name, computeGroundTrack(satrec, 1, 80))
+      }
+    }
+    if (i < records.length) setTimeout(step, 0)
+  }
+  setTimeout(step, 0)
+}
+
+export function getCachedGroundTrack(name: string): [number, number, number][][] {
+  return groundTrackCache.get(name) ?? []
 }
 
 export function propagateSatellites(tles: TLERecord[]): SatellitePosition[] {
@@ -75,7 +121,6 @@ export function propagateSatellites(tles: TLERecord[]): SatellitePosition[] {
 
     const gmst = satellite.gstime(now)
     const geo = satellite.eciToGeodetic(pos, gmst)
-
     const lat = satellite.degreesLat(geo.latitude)
     const lng = satellite.degreesLong(geo.longitude)
     const alt = geo.height
@@ -87,7 +132,20 @@ export function propagateSatellites(tles: TLERecord[]): SatellitePosition[] {
       velocity = Math.sqrt(vel.x ** 2 + vel.y ** 2 + vel.z ** 2)
     }
 
-    results.push({ name, lat, lng, alt, velocity, satrec, objectType, purpose: inferPurpose(name) })
+    const dbEntry = satDb.get(name.toUpperCase())
+    results.push({
+      name,
+      lat,
+      lng,
+      alt,
+      velocity,
+      satrec,
+      objectType,
+      purpose: dbEntry?.purpose ?? inferPurpose(name),
+      operator: dbEntry?.operator,
+      country: dbEntry?.country,
+      launched: dbEntry?.launched,
+    })
   }
 
   return results
@@ -99,13 +157,12 @@ export function getCachedTLEs(): TLERecord[] {
 
 // Compute the satellite's ground track over multiple orbits.
 // Returns segments split at antimeridian crossings (>180° lng jump).
-// Each point is [lat, lng, surfaceAlt] for Globe.gl pathsData.
 export function computeGroundTrack(
   satrec: satellite.SatRec,
   numOrbits = 3,
   stepsPerOrbit = 90
 ): [number, number, number][][] {
-  const meanMotion = satrec.no // rad/min
+  const meanMotion = satrec.no
   const periodMin = (2 * Math.PI) / meanMotion
   const totalSteps = numOrbits * stepsPerOrbit
   const stepMs = (periodMin * 60 * 1000) / stepsPerOrbit
@@ -127,7 +184,6 @@ export function computeGroundTrack(
     if (!isNaN(lat) && !isNaN(lng)) all.push([lat, lng, 0.004])
   }
 
-  // Split where satellite crosses the antimeridian (±180° boundary)
   const segments: [number, number, number][][] = []
   let seg: [number, number, number][] = []
 

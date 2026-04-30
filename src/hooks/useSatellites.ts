@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { fetchTLEs, propagateSatellites, getCachedTLEs } from '../services/celestrak'
+import { fetchTLEs, propagateSatellites, getCachedTLEs, loadSatelliteDb } from '../services/celestrak'
 import type { SatellitePosition } from '../types'
 
 export function useSatellites() {
@@ -11,7 +11,7 @@ export function useSatellites() {
   useEffect(() => {
     async function loadTLEs() {
       try {
-        await fetchTLEs()
+        await Promise.all([fetchTLEs(), loadSatelliteDb()])
         tlesLoaded.current = true
         setLoading(false)
       } catch {

@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import GlobeGL from 'globe.gl'
 import * as THREE from 'three'
 import type { SatellitePosition, ISSPosition, Launch, SelectedObject } from '../../types'
-import { computeGroundTrack } from '../../services/celestrak'
+import { computeGroundTrack, getCachedGroundTrack } from '../../services/celestrak'
 
 interface GlobeProps {
   satellites: SatellitePosition[]
@@ -261,12 +261,11 @@ export function Globe({
       animTime: number
     }
 
-    // Pre-compute static background paths for all satellites (1 orbit, slow gentle animation)
+    // Use pre-computed cached ground tracks — O(1) lookup, no propagation cost
     const staticPaths: PathEntry[] = []
     if (showAllPaths) {
       for (const sat of satellites) {
-        if (!sat.satrec) continue
-        const segs = computeGroundTrack(sat.satrec, 1, 80)
+        const segs = getCachedGroundTrack(sat.name)
         for (const seg of segs) {
           staticPaths.push({
             coords: seg,
@@ -304,7 +303,7 @@ export function Globe({
     let count = 2
 
     const tick = () => {
-      count = Math.min(count + 1, flatPts.length)
+      count = Math.min(count + 3, flatPts.length)
       const segs = splitAtAntimeridian(flatPts.slice(0, count))
       applyPaths(
         segs.map((seg) => ({
@@ -322,8 +321,8 @@ export function Globe({
       }
     }
 
-    // Draw one point every 100ms — full 2-orbit trace completes in ~24 seconds
-    pathTimerRef.current = setInterval(tick, 100)
+    // Add 3 points every 60ms — full 2-orbit trace completes in ~5 seconds
+    pathTimerRef.current = setInterval(tick, 60)
     tick()
 
     return () => {
