@@ -1,5 +1,11 @@
 import { useState, useEffect } from 'react'
 import type { SolarWeather } from '../../types'
+import { PLANETS } from '../../services/horizons'
+
+export type AppView =
+  | { kind: 'earth' }
+  | { kind: 'solar-system' }
+  | { kind: 'planet'; planetId: string }
 
 interface StatusBarProps {
   weather: SolarWeather | null
@@ -9,8 +15,19 @@ interface StatusBarProps {
   onTogglePaths: () => void
   autoRotate: boolean
   onToggleRotate: () => void
-  view: 'earth' | 'solar-system'
-  onToggleView: () => void
+  view: AppView
+  onSelectView: (view: AppView) => void
+}
+
+const PLANET_GLYPH: Record<string, string> = {
+  Mercury: '☿',
+  Venus: '♀',
+  Earth: '⊕',
+  Mars: '♂',
+  Jupiter: '♃',
+  Saturn: '♄',
+  Uranus: '♅',
+  Neptune: '♆',
 }
 
 function kpColor(kp: number): string {
@@ -28,7 +45,7 @@ export function StatusBar({
   autoRotate,
   onToggleRotate,
   view,
-  onToggleView,
+  onSelectView,
 }: StatusBarProps) {
   const [utc, setUtc] = useState('')
 
@@ -42,13 +59,24 @@ export function StatusBar({
     return () => clearInterval(id)
   }, [])
 
+  const isActiveSolar = view.kind === 'solar-system'
+  const activePlanetId =
+    view.kind === 'earth' ? '399'
+    : view.kind === 'planet' ? view.planetId
+    : null
+
+  const onPlanetTab = (planetId: string) => {
+    if (planetId === '399') onSelectView({ kind: 'earth' })
+    else onSelectView({ kind: 'planet', planetId })
+  }
+
   return (
     <div
       className="hud-panel glow-cyan fixed top-0 left-0 right-0 z-10 flex items-center justify-between"
-      style={{ padding: '6px 20px', minHeight: 44 }}
+      style={{ padding: '6px 14px', minHeight: 44, gap: 8 }}
     >
-      {/* Left — branding + clock */}
-      <div className="flex items-center gap-5">
+      {/* Left — brand + clock */}
+      <div className="flex items-center gap-3" style={{ flexShrink: 0 }}>
         <span
           className="glow-text"
           style={{
@@ -68,21 +96,43 @@ export function StatusBar({
         </span>
       </div>
 
-      {/* Centre — telemetry */}
-      <div className="flex items-center gap-5">
-        <Stat label="Satellites" value={satelliteCount.toLocaleString()} />
+      {/* Centre — planet tabs */}
+      <div className="flex items-center" style={{ gap: 4, flex: '0 1 auto', overflow: 'hidden' }}>
+        <button
+          className={`hud-btn ${isActiveSolar ? 'active' : ''}`}
+          onClick={() => onSelectView({ kind: 'solar-system' })}
+          title="Solar system overview"
+        >
+          ☀ Solar System
+        </button>
         <Divider />
-        <div className="flex items-center gap-2">
+        {PLANETS.map((p) => (
+          <button
+            key={p.id}
+            className={`hud-btn planet-tab ${activePlanetId === p.id ? 'active' : ''}`}
+            onClick={() => onPlanetTab(p.id)}
+            title={p.name}
+          >
+            <span style={{ marginRight: 4 }}>{PLANET_GLYPH[p.name] ?? '·'}</span>
+            {p.name}
+          </button>
+        ))}
+      </div>
+
+      {/* Right — telemetry + view-specific controls */}
+      <div className="flex items-center gap-3" style={{ flexShrink: 0 }}>
+        <Stat label="Sat" value={satelliteCount.toLocaleString()} />
+        <Divider />
+        <div className="flex items-center gap-1">
           <span className={`status-dot ${issOnline ? 'online' : 'offline'}`} />
-          <span className="label-text">ISS</span>
-          <span className="value-text" style={{ color: issOnline ? '#00ff8c' : '#ff4040' }}>
-            {issOnline ? 'ONLINE' : 'OFFLINE'}
+          <span className="value-text" style={{ color: issOnline ? '#00ff8c' : '#ff4040', fontSize: 10 }}>
+            ISS
           </span>
         </div>
         {weather && (
           <>
             <Divider />
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1" title={weather.kpLabel}>
               <span
                 className="status-dot"
                 style={{
@@ -94,33 +144,20 @@ export function StatusBar({
               <span className="value-text" style={{ color: kpColor(weather.kpIndex) }}>
                 {weather.kpIndex.toFixed(1)}
               </span>
-              <span className="label-text">{weather.kpLabel}</span>
             </div>
-            <Divider />
-            <Stat
-              label="CME 7d"
-              value={String(weather.cmeCount)}
-              valueColor={weather.cmeCount > 0 ? '#ffa040' : undefined}
-            />
           </>
         )}
-      </div>
-
-      {/* Right — controls */}
-      <div className="flex items-center gap-2">
-        {view === 'earth' && (
+        {view.kind === 'earth' && (
           <>
+            <Divider />
             <button className={`hud-btn ${showAllPaths ? 'active' : ''}`} onClick={onTogglePaths}>
               Orbits {showAllPaths ? 'ON' : 'OFF'}
             </button>
             <button className={`hud-btn ${autoRotate ? 'active' : ''}`} onClick={onToggleRotate}>
-              {autoRotate ? '⟳ Rotating' : '⏸ Paused'}
+              {autoRotate ? '⟳' : '⏸'}
             </button>
           </>
         )}
-        <button className={`hud-btn ${view === 'solar-system' ? 'active' : ''}`} onClick={onToggleView}>
-          {view === 'earth' ? '☀ Solar System' : '⊕ Earth'}
-        </button>
       </div>
     </div>
   )
@@ -150,7 +187,7 @@ function Stat({
   valueColor?: string
 }) {
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex items-center gap-1">
       <span className="label-text">{label}</span>
       <span className="value-text" style={valueColor ? { color: valueColor } : undefined}>
         {value}

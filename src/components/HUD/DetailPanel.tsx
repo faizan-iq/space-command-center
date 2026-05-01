@@ -27,9 +27,12 @@ export function DetailPanel({ selected, onClose }: DetailPanelProps) {
   if (!selected) return null
 
   const sectionTitle =
-    selected.type === 'satellite' ? 'Satellite'
-    : selected.type === 'iss'     ? 'International Space Station'
-    : 'Launch'
+    selected.type === 'satellite'  ? 'Satellite'
+    : selected.type === 'iss'      ? 'International Space Station'
+    : selected.type === 'launch'   ? 'Launch'
+    : selected.type === 'spacecraft' ? 'Spacecraft'
+    : selected.type === 'moon'     ? 'Moon'
+    : 'Planet'
 
   return (
     <div
@@ -53,6 +56,9 @@ export function DetailPanel({ selected, onClose }: DetailPanelProps) {
             {selected.type === 'satellite' && selected.data.name}
             {selected.type === 'iss' && 'ISS'}
             {selected.type === 'launch' && selected.data.name}
+            {selected.type === 'spacecraft' && selected.data.name}
+            {selected.type === 'moon' && selected.data.moon.name}
+            {selected.type === 'planet' && selected.data.planet.name}
           </span>
           {selected.type === 'satellite' && (
             <div style={{ marginTop: 3 }}>{typeBadge(selected.data.objectType)}</div>
@@ -94,25 +100,56 @@ export function DetailPanel({ selected, onClose }: DetailPanelProps) {
       <hr className="hud-divider" />
 
       {/* Satellite data */}
-      {selected.type === 'satellite' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
-          <Row label="Latitude"  value={`${selected.data.lat.toFixed(4)}°`} />
-          <Row label="Longitude" value={`${selected.data.lng.toFixed(4)}°`} />
-          <Row label="Altitude"  value={`${selected.data.alt.toFixed(1)} km`} />
-          {selected.data.velocity !== undefined && (
-            <Row label="Velocity" value={`${(selected.data.velocity * 7.905).toFixed(2)} km/s`} />
-          )}
-          {selected.data.operator && (
-            <Row label="Operator" value={selected.data.operator} />
-          )}
-          {selected.data.country && (
-            <Row label="Country" value={selected.data.country} />
-          )}
-          {selected.data.launched && (
-            <Row label="Launched" value={selected.data.launched} />
-          )}
-        </div>
-      )}
+      {selected.type === 'satellite' && (() => {
+        const sat = selected.data
+        // Derive orbital parameters from TLE satrec if available
+        let periodMin: number | undefined
+        let inclDeg: number | undefined
+        let apogeeKm: number | undefined
+        let perigeeKm: number | undefined
+        if (sat.satrec) {
+          const n = sat.satrec.no // rad/min
+          if (n > 0) {
+            periodMin = (2 * Math.PI) / n
+            const a = Math.pow(398600.4418 / (n * n * 60 * 60), 1 / 3) // semi-major axis km
+            const e = sat.satrec.ecco ?? 0
+            apogeeKm  = Math.round(a * (1 + e) - 6371)
+            perigeeKm = Math.round(a * (1 - e) - 6371)
+          }
+          inclDeg = sat.satrec.inclo != null
+            ? (sat.satrec.inclo * 180 / Math.PI)
+            : undefined
+        }
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+            <Row label="Latitude"    value={`${sat.lat.toFixed(4)}°`} />
+            <Row label="Longitude"   value={`${sat.lng.toFixed(4)}°`} />
+            <Row label="Altitude"    value={`${sat.alt.toFixed(1)} km`} />
+            {sat.velocity !== undefined && (
+              <Row label="Velocity"  value={`${(sat.velocity * 7.905).toFixed(2)} km/s`} />
+            )}
+            {inclDeg !== undefined && (
+              <Row label="Inclination" value={`${inclDeg.toFixed(2)}°`} />
+            )}
+            {periodMin !== undefined && (
+              <Row label="Period" value={
+                periodMin >= 60
+                  ? `${(periodMin / 60).toFixed(2)} hr`
+                  : `${periodMin.toFixed(1)} min`
+              } />
+            )}
+            {apogeeKm !== undefined && perigeeKm !== undefined && (
+              <>
+                <Row label="Apogee"  value={`${apogeeKm.toLocaleString()} km`} />
+                <Row label="Perigee" value={`${perigeeKm.toLocaleString()} km`} />
+              </>
+            )}
+            {sat.operator && <Row label="Operator" value={sat.operator} />}
+            {sat.country  && <Row label="Country"  value={sat.country} />}
+            {sat.launched && <Row label="Launched" value={sat.launched} />}
+          </div>
+        )
+      })()}
 
       {/* ISS data */}
       {selected.type === 'iss' && (
@@ -127,6 +164,74 @@ export function DetailPanel({ selected, onClose }: DetailPanelProps) {
           />
         </div>
       )}
+
+      {/* Spacecraft data */}
+      {selected.type === 'spacecraft' && (() => {
+        const c = selected.data
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+            <Row label="Operator"     value={c.operator} />
+            <Row label="Country"      value={c.country} />
+            <Row label="Status"       value={c.status.toUpperCase()} highlight={c.status === 'active'} />
+            <Row label="Launched"     value={c.launched} />
+            <Row label="Arrived"      value={c.arrived} />
+            <Row label="Altitude"     value={`${c.orbitAltKm.toLocaleString()} km`} />
+            <Row label="Period"       value={
+              c.orbitPeriodMin >= 60
+                ? `${(c.orbitPeriodMin / 60).toFixed(2)} hr`
+                : `${c.orbitPeriodMin.toFixed(0)} min`
+            } />
+            <Row label="Inclination"  value={`${c.inclinationDeg}°`} />
+            <hr className="hud-divider" />
+            <div>
+              <div className="label-text" style={{ marginBottom: 5 }}>Mission</div>
+              <p style={{
+                fontFamily: 'Rajdhani, sans-serif', fontSize: 12,
+                color: 'rgba(180,210,230,0.75)', lineHeight: 1.55,
+              }}>
+                {c.mission}
+              </p>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Moon data */}
+      {selected.type === 'moon' && (() => {
+        const m = selected.data.moon
+        const distanceKm = m.orbitRadiusAU * 149_597_871
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+            <Row label="Parent"   value={selected.data.parentPlanetName} />
+            <Row label="Radius"   value={`${m.radius.toLocaleString()} km`} />
+            <Row label="Distance" value={`${Math.round(distanceKm).toLocaleString()} km`} />
+            <Row label="Period"   value={
+              m.orbitPeriodDays >= 1
+                ? `${m.orbitPeriodDays.toFixed(2)} days`
+                : `${(m.orbitPeriodDays * 24).toFixed(2)} hr`
+            } />
+          </div>
+        )
+      })()}
+
+      {/* Planet data */}
+      {selected.type === 'planet' && (() => {
+        const p = selected.data.planet
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 }}>
+            <Row label="Radius"        value={`${p.radius.toLocaleString()} km`} />
+            <Row label="Distance ☉"    value={`${p.a.toFixed(3)} AU`} />
+            <Row label="Eccentricity"  value={p.e.toFixed(4)} />
+            <Row label="Inclination"   value={`${p.I.toFixed(2)}°`} />
+            <Row label="Year"          value={
+              p.orbitPeriodDays >= 365
+                ? `${(p.orbitPeriodDays / 365.25).toFixed(2)} yr`
+                : `${p.orbitPeriodDays.toFixed(1)} days`
+            } />
+            <Row label="Moons"         value={String(p.moons?.length ?? 0)} />
+          </div>
+        )
+      })()}
 
       {/* Launch data */}
       {selected.type === 'launch' && (

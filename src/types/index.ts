@@ -1,3 +1,6 @@
+import type { Spacecraft } from '../services/planetSpacecraft'
+import type { MoonBody, PlanetBody } from '../services/horizons'
+
 export interface SatellitePosition {
   name: string
   lat: number
@@ -44,8 +47,21 @@ export interface SolarWeather {
   lastUpdated: Date
 }
 
+export interface PlanetSelection {
+  planet: PlanetBody
+  distanceFromSunAU: number
+}
+
+export interface MoonSelection {
+  moon: MoonBody
+  parentPlanetName: string
+}
+
 export type SelectedObject =
   | { type: 'satellite'; data: SatellitePosition }
   | { type: 'launch'; data: Launch }
   | { type: 'iss'; data: ISSPosition }
+  | { type: 'spacecraft'; data: Spacecraft }
+  | { type: 'moon'; data: MoonSelection }
+  | { type: 'planet'; data: PlanetSelection }
   | null

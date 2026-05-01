@@ -1,4 +1,4 @@
-@import "tailwindcss";
+﻿@import "tailwindcss";
 
 * {
   box-sizing: border-box;
@@ -147,4 +147,35 @@ body,
   border-color: rgba(0, 210, 255, 0.7);
   color: #00d2ff;
   box-shadow: 0 0 8px rgba(0, 210, 255, 0.2);
+}
+
+/* ── Planet tabs (compact) ───────────────────────────── */
+.hud-btn.planet-tab {
+  font-size: 10px;
+  padding: 3px 7px;
+  letter-spacing: 0.06em;
+}
+.hud-btn.planet-tab > span {
+  font-size: 11px;
+  color: rgba(0, 210, 255, 0.85);
+}
+
+/* ── Planet detail labels ────────────────────────────── */
+.planet-detail-label {
+  position: absolute;
+  pointer-events: none;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+  transform: translateX(-50%);
+}
+.planet-detail-label.moon-label {
+  color: rgba(200, 220, 240, 0.8);
+  text-shadow: 0 0 6px rgba(180, 200, 230, 0.5);
+}
+.planet-detail-label.craft-label {
+  color: rgba(140, 220, 255, 0.9);
+  text-shadow: 0 0 6px rgba(0, 210, 255, 0.7);
 }

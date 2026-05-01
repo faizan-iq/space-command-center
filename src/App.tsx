@@ -1,7 +1,8 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { Globe } from './components/Globe/Globe'
 import { SolarSystem } from './components/SolarSystem/SolarSystem'
-import { StatusBar } from './components/HUD/StatusBar'
+import { PlanetDetail } from './components/PlanetDetail/PlanetDetail'
+import { StatusBar, type AppView } from './components/HUD/StatusBar'
 import { DetailPanel } from './components/HUD/DetailPanel'
 import { Legend } from './components/HUD/Legend'
 import { SolarPanel } from './components/HUD/SolarPanel'
@@ -10,11 +11,12 @@ import { useSatellites } from './hooks/useSatellites'
 import { useLaunches } from './hooks/useLaunches'
 import { useSolarWeather } from './hooks/useSolarWeather'
 import { useSolarSystem } from './hooks/useSolarSystem'
+import { PLANETS } from './services/horizons'
+import { prewarmAssets } from './services/assets'
 import type { SelectedObject, SatellitePosition } from './types'
 
-type AppView = 'earth' | 'solar-system'
-
 export default function App() {
+  useEffect(() => { prewarmAssets() }, [])
   const { position: issPosition } = useISS()
   const { satellites } = useSatellites()
   const { launches } = useLaunches()
@@ -22,9 +24,9 @@ export default function App() {
   const [selected, setSelected] = useState<SelectedObject>(null)
   const [showAllPaths, setShowAllPaths] = useState(false)
   const [autoRotate, setAutoRotate] = useState(true)
-  const [view, setView] = useState<AppView>('earth')
+  const [view, setView] = useState<AppView>({ kind: 'earth' })
 
-  const { positions: solarPositions, loading: solarLoading } = useSolarSystem(view === 'solar-system')
+  const { positions: solarPositions, loading: solarLoading } = useSolarSystem(view.kind === 'solar-system')
 
   const handleSelect = useCallback((obj: SelectedObject) => setSelected(obj), [])
   const handleClose = useCallback(() => setSelected(null), [])
@@ -36,14 +38,32 @@ export default function App() {
         ? satellites.find((s) => s.name.includes('ISS') || s.name.includes('ZARYA')) ?? null
         : null
 
-  const handleSelectPlanet = useCallback((name: string) => {
-    // Show planet info in a simple selected state (reuse detail panel with a planet type later)
-    console.log('Selected planet:', name)
+  const handleSelectPlanet = useCallback((planetId: string) => {
+    // Earth → existing globe view; other planets → generic detail view
+    if (planetId === '399') {
+      setView({ kind: 'earth' })
+    } else {
+      setView({ kind: 'planet', planetId })
+      setSelected(null)
+    }
   }, [])
+
+  const handleBackToSolarSystem = useCallback(() => {
+    setView({ kind: 'solar-system' })
+    setSelected(null)
+  }, [])
+
+  const handleSelectView = useCallback((next: AppView) => {
+    setView(next)
+    setSelected(null)
+  }, [])
+
+  const currentPlanet =
+    view.kind === 'planet' ? PLANETS.find((p) => p.id === view.planetId) ?? null : null
 
   return (
     <div style={{ width: '100vw', height: '100vh', position: 'relative', overflow: 'hidden' }}>
-      {view === 'earth' ? (
+      {view.kind === 'earth' && (
         <Globe
           satellites={satellites}
           issPosition={issPosition}
@@ -54,11 +74,19 @@ export default function App() {
           selectedSatellite={selectedSatellite}
           kpIndex={weather?.kpIndex ?? 0}
         />
-      ) : (
+      )}
+      {view.kind === 'solar-system' && (
         <SolarSystem
           positions={solarPositions}
           loading={solarLoading}
           onSelectPlanet={handleSelectPlanet}
+        />
+      )}
+      {view.kind === 'planet' && currentPlanet && (
+        <PlanetDetail
+          planet={currentPlanet}
+          onSelect={handleSelect}
+          onBack={handleBackToSolarSystem}
         />
       )}
       <StatusBar
@@ -70,11 +98,13 @@ export default function App() {
         autoRotate={autoRotate}
         onToggleRotate={() => setAutoRotate((v) => !v)}
         view={view}
-        onToggleView={() => setView((v) => v === 'earth' ? 'solar-system' : 'earth')}
+        onSelectView={handleSelectView}
       />
-      {view === 'earth' && <DetailPanel selected={selected} onClose={handleClose} />}
-      {view === 'earth' && <Legend />}
-      {view === 'earth' && <SolarPanel weather={weather} />}
+      {(view.kind === 'earth' || view.kind === 'planet') && (
+        <DetailPanel selected={selected} onClose={handleClose} />
+      )}
+      {view.kind === 'earth' && <Legend />}
+      {view.kind === 'earth' && <SolarPanel weather={weather} />}
     </div>
   )
 }
