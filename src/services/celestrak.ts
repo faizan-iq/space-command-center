@@ -1,9 +1,16 @@
 import * as satellite from 'satellite.js'
 import type { SatellitePosition } from '../types'
 
-const TLE_URLS = [
-  'https://celestrak.org/NORAD/elements/gp.php?GROUP=active&FORMAT=tle',
-  'https://celestrak.org/NORAD/elements/gp.php?GROUP=visual&FORMAT=tle',
+const BASE = 'https://celestrak.org/NORAD/elements/gp.php?FORMAT=tle&GROUP='
+
+// Fetch these groups in parallel — each is small/fast, combined gives ~4000+ satellites
+const TLE_GROUPS = [
+  'stations', 'visual', 'weather', 'noaa', 'goes',
+  'resource', 'sarsat', 'iridium-NEXT', 'orbcomm', 'globalstar',
+  'amateur', 'x-comm', 'other-comm', 'gps-ops', 'glo-ops',
+  'galileo', 'beidou', 'science', 'geodetic', 'engineering',
+  'education', 'military', 'radar', 'cubesat', 'other',
+  'oneweb',
 ]
 
 interface TLERecord {
@@ -68,32 +75,39 @@ export function inferPurpose(name: string): string {
   return 'Purpose unknown'
 }
 
-async function fetchTLEsFromUrl(url: string): Promise<TLERecord[]> {
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
-  const text = await res.text()
-  const lines = text.trim().split('\n').map((l) => l.trim())
-
-  const records: TLERecord[] = []
-  for (let i = 0; i < lines.length - 2; i += 3) {
-    const name = lines[i]
-    const line1 = lines[i + 1]
-    const line2 = lines[i + 2]
-    if (!line1?.startsWith('1') || !line2?.startsWith('2')) continue
-    const satrec = satellite.twoline2satrec(line1, line2)
-    records.push({ name, satrec, objectType: inferObjectType(name) })
+async function fetchGroup(group: string): Promise<TLERecord[]> {
+  try {
+    const res = await fetch(BASE + group)
+    if (!res.ok) return []
+    const text = await res.text()
+    const lines = text.trim().split('\n').map((l) => l.trim())
+    const records: TLERecord[] = []
+    for (let i = 0; i < lines.length - 2; i += 3) {
+      const name = lines[i]
+      const line1 = lines[i + 1]
+      const line2 = lines[i + 2]
+      if (!line1?.startsWith('1') || !line2?.startsWith('2')) continue
+      const satrec = satellite.twoline2satrec(line1, line2)
+      records.push({ name, satrec, objectType: inferObjectType(name) })
+    }
+    return records
+  } catch {
+    return []
   }
-  return records
 }
 
 export async function fetchTLEs(): Promise<TLERecord[]> {
-  let records: TLERecord[] = []
-  for (const url of TLE_URLS) {
-    try {
-      records = await fetchTLEsFromUrl(url)
-      if (records.length > 0) break
-    } catch {
-      // try next URL
+  const results = await Promise.all(TLE_GROUPS.map(fetchGroup))
+
+  // Deduplicate by name — same satellite can appear in multiple groups
+  const seen = new Set<string>()
+  const records: TLERecord[] = []
+  for (const group of results) {
+    for (const rec of group) {
+      if (!seen.has(rec.name)) {
+        seen.add(rec.name)
+        records.push(rec)
+      }
     }
   }
 
